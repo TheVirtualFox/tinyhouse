@@ -1,16 +1,20 @@
-import React from 'react';
-import {RouteComponentProps} from 'react-router-dom';
-import { useMutation, useQuery} from "react-apollo";
-import {User as UserData, UserVariables} from "../../lib/graphql/queries/User/__generated__/User";
-import {USER} from "../../lib/graphql/queries/User";
-import {Col, Layout, Row} from "antd";
-import {UserProfile} from "./components/UserProfile";
-import {Viewer} from "../../lib/types";
-import {PageSkeleton} from "../../lib/components/PageSkeleton";
-import {ErrorBanner} from "../../lib/components/ErrorBanner";
+import React, { useState } from "react";
+import { useParams } from "react-router-dom";
+import { useQuery } from "react-apollo";
+import { Col, Layout, Row } from "antd";
+import { USER } from "../../lib/graphql/queries";
+import {
+    User as UserData,
+    UserVariables
+} from "../../lib/graphql/queries/User/__generated__/User";
+import { ErrorBanner, PageSkeleton } from "../../lib/components";
+import { useScrollToTop } from "../../lib/hooks";
+import { Viewer } from "../../lib/types";
+import { UserBookings, UserListings, UserProfile } from "./components";
 
 interface Props {
-    viewer: Viewer
+    viewer: Viewer;
+    setViewer: (viewer: Viewer) => void;
 }
 
 interface MatchParams {
@@ -18,13 +22,34 @@ interface MatchParams {
 }
 
 const { Content } = Layout;
+const PAGE_LIMIT = 4;
 
-export const User = ({ viewer, match }: Props & RouteComponentProps<MatchParams>) => {
-    const { data, loading, error } = useQuery<UserData, UserVariables>(USER, {
+export const User = ({ viewer, setViewer }: Props) => {
+    const [listingsPage, setListingsPage] = useState(1);
+    const [bookingPage, setBookingsPage] = useState(1);
+
+    const { id } = useParams<MatchParams>();
+
+    const { data, loading, error, refetch } = useQuery<UserData, UserVariables>(USER, {
         variables: {
-            id: match.params.id
-        }
+            id,
+            bookingPage,
+            listingsPage,
+            limit: PAGE_LIMIT
+        },
+        fetchPolicy: "cache-and-network"
     });
+
+    useScrollToTop();
+
+    const handleUserRefetch = async () => {
+        await refetch();
+    };
+
+    const stripeError = new URL(window.location.href).searchParams.get("stripe_error");
+    const stripeErrorBanner = stripeError ? (
+        <ErrorBanner description="We had an issue connecting with Stripe. Please try again soon." />
+    ) : null;
 
     if (loading) {
         return (
@@ -37,19 +62,55 @@ export const User = ({ viewer, match }: Props & RouteComponentProps<MatchParams>
     if (error) {
         return (
             <Content className="user">
-                <ErrorBanner description="err" />
+                <ErrorBanner description="This user may not exist or we've encountered an error. Please try again soon." />
                 <PageSkeleton />
             </Content>
         );
     }
 
     const user = data ? data.user : null;
-    const viewerIsUser = viewer.id === match.params.id;
-    const userProfileElement = user ? <UserProfile user={user} viewerIsUser={viewerIsUser} /> : null;
+    const viewerIsUser = viewer.id === id;
+
+    const userListings = user ? user.listings : null;
+    const userBookings = user ? user.bookings : null;
+
+    const userProfileElement = user ? (
+        <UserProfile
+            user={user}
+            viewer={viewer}
+            viewerIsUser={viewerIsUser}
+            setViewer={setViewer}
+            handleUserRefetch={handleUserRefetch}
+        />
+    ) : null;
+
+    const userListingsElement = userListings ? (
+        <UserListings
+            userListings={userListings}
+            listingsPage={listingsPage}
+            limit={PAGE_LIMIT}
+            setListingsPage={setListingsPage}
+        />
+    ) : null;
+
+    const userBookingsElement = userListings ? (
+        <UserBookings
+            userBookings={userBookings}
+            bookingsPage={bookingPage}
+            limit={PAGE_LIMIT}
+            setBookingsPage={setBookingsPage}
+        />
+    ) : null;
+
     return (
         <Content className="user">
-            <Row gutter={12} type="flex" justify="space-between">
+            {stripeErrorBanner}
+            <Row gutter={12} justify="space-between">
                 <Col xs={24}>{userProfileElement}</Col>
+                <Col xs={24}>
+                    {userListingsElement}
+                    {userBookingsElement}
+                </Col>
             </Row>
         </Content>
     );
